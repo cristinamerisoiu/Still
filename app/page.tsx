@@ -43,6 +43,9 @@ export default function Home() {
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => syncSession(session?.user.id ?? null, session?.user.email ?? null));
     return () => listener.subscription.unsubscribe();
   }, []);
+  useEffect(() => {
+    if (view === "profile" && userId) void loadUserPhotos(userId);
+  }, [view, userId]);
   async function syncSession(id: string | null, userEmail: string | null) {
     setUserId(id); setAccountEmail(userEmail);
     if (!id || !supabase) { setNeedsProfile(false); setUserPhotos([]); return; }
