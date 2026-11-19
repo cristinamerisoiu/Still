@@ -5,10 +5,12 @@
 - [x] Preserve the current Netlify-hosted prototype.
 - [x] Fix the wordmark button, missing photograph, and detail-view navigation design.
 - [x] Define the Next.js + TypeScript migration target.
-- [ ] Install the Next.js + TypeScript dependencies.
-- [ ] Move the prototype into `app/` routes and reusable components.
-- [ ] Add a `Back` control to photograph detail that returns to the originating view.
-- [ ] Verify a production build and update the Netlify build configuration.
+- [x] Add Next.js and TypeScript project configuration.
+- [x] Install the Next.js + TypeScript dependencies.
+- [x] Move the prototype into `app/` routes and reusable components.
+- [x] Add a `Back` control to photograph detail that returns to the originating view.
+- [x] Verify a production build.
+- [ ] Confirm Netlify's Next.js deployment from `main`.
 
 ## Phase 2 — Data and accounts
 
