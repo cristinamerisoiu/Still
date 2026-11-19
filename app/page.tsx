@@ -16,14 +16,24 @@ export default function Home() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [accountEmail, setAccountEmail] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [needsProfile, setNeedsProfile] = useState(false);
+  const [handle, setHandle] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [message, setMessage] = useState("");
   const photo = photos.find((item) => item.id === selected);
   useEffect(() => {
     if (!supabase) return;
-    supabase.auth.getSession().then(({ data }) => setAccountEmail(data.session?.user.email ?? null));
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => setAccountEmail(session?.user.email ?? null));
+    supabase.auth.getSession().then(({ data }) => syncSession(data.session?.user.id ?? null, data.session?.user.email ?? null));
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => syncSession(session?.user.id ?? null, session?.user.email ?? null));
     return () => listener.subscription.unsubscribe();
   }, []);
+  async function syncSession(id: string | null, userEmail: string | null) {
+    setUserId(id); setAccountEmail(userEmail);
+    if (!id || !supabase) return setNeedsProfile(false);
+    const { data } = await supabase.from("profiles").select("id").eq("id", id).maybeSingle();
+    setNeedsProfile(!data);
+  }
   async function authenticate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!supabase) return setMessage("Supabase is not configured yet.");
@@ -37,7 +47,15 @@ export default function Home() {
     setMessage(error ? error.message : "Check your email to confirm your account.");
   }
   async function signOut() { if (supabase) await supabase.auth.signOut(); }
+  async function createProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase || !userId) return;
+    const normalizedHandle = handle.trim().toLowerCase();
+    const { error } = await supabase.from("profiles").insert({ id: userId, handle: normalizedHandle, display_name: displayName.trim() });
+    setMessage(error ? error.message : "Your photographer profile is ready.");
+    if (!error) setNeedsProfile(false);
+  }
   const gallery = <section className="gallery">{photos.map((item) => <button key={item.id} className="photo" onClick={() => setSelected(item.id)}><img src={item.image} alt={item.title} /><span>{item.category}</span></button>)}</section>;
   const screen = view === "gallery" ? gallery : <section className="panel"><p className="eyebrow">{view}</p><h1>{view === "discover" ? "Discover slowly." : view === "upload" ? "Share a photograph." : view === "conversations" ? "Thoughtful exchanges." : "Mara Voss"}</h1><p>{view === "discover" ? "Varied work beyond your network. No popularity ranking." : "This prototype section is ready to connect to real data in Phase 2."}</p>{view === "discover" || view === "profile" ? gallery : null}</section>;
-  return <main className="shell"><header><button className="wordmark" onClick={() => { setSelected(null); setView("gallery"); }}>STILL.</button><nav>{["gallery","discover","upload","conversations","profile"].map((item) => <button className={view === item ? "active" : ""} key={item} onClick={() => { setSelected(null); setView(item); }}>{item}</button>)}{accountEmail ? <button onClick={signOut}>Sign out</button> : <button onClick={() => setAuthOpen(true)}>Sign in</button>}</nav></header>{authOpen && <section className="auth"><button className="back" onClick={() => setAuthOpen(false)}>× Close</button><h1>Welcome to STILL.</h1><form onSubmit={authenticate}><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" required /><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" minLength={8} required /><button type="submit">Sign in</button><button type="button" onClick={register}>Create account</button></form><p>{message}</p></section>}{photo ? <section className="detail"><button className="back" onClick={() => setSelected(null)}>← Back</button><img src={photo.image} alt={photo.title} /><div><p className="eyebrow">{photo.category}</p><h1>{photo.title}</h1><p>{photo.description}</p><p>Photograph by {photo.name}</p></div></section> : screen}</main>;
+  return <main className="shell"><header><button className="wordmark" onClick={() => { setSelected(null); setView("gallery"); }}>STILL.</button><nav>{["gallery","discover","upload","conversations","profile"].map((item) => <button className={view === item ? "active" : ""} key={item} onClick={() => { setSelected(null); setView(item); }}>{item}</button>)}{accountEmail ? <button onClick={signOut}>Sign out</button> : <button onClick={() => setAuthOpen(true)}>Sign in</button>}</nav></header>{needsProfile && <section className="auth"><h1>Set up your profile.</h1><form onSubmit={createProfile}><input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Display name" required /><input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="Handle (letters, numbers, underscore)" pattern="[a-zA-Z0-9_]{3,30}" required /><button type="submit">Create profile</button></form><p>{message}</p></section>}{authOpen && <section className="auth"><button className="back" onClick={() => setAuthOpen(false)}>× Close</button><h1>Welcome to STILL.</h1><form onSubmit={authenticate}><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" required /><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" minLength={8} required /><button type="submit">Sign in</button><button type="button" onClick={register}>Create account</button></form><p>{message}</p></section>}{photo ? <section className="detail"><button className="back" onClick={() => setSelected(null)}>← Back</button><img src={photo.image} alt={photo.title} /><div><p className="eyebrow">{photo.category}</p><h1>{photo.title}</h1><p>{photo.description}</p><p>Photograph by {photo.name}</p></div></section> : screen}</main>;
 }
