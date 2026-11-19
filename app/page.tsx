@@ -9,6 +9,7 @@ const photos = [
   { id: 3, title: "Red room", name: "Iris Osei", category: "Portrait", description: "A study in a borrowed room.", image: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=1200&q=86" }
 ];
 type StoredPhoto = { id: string; title: string | null; categories: string[]; image_path: string };
+type PublishedPhoto = StoredPhoto & { owner_id: string; profiles: { display_name: string; handle: string } | null };
 
 export default function Home() {
   const [selected, setSelected] = useState<number | null>(null);
@@ -35,6 +36,7 @@ export default function Home() {
   const [uploading, setUploading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [userPhotos, setUserPhotos] = useState<StoredPhoto[]>([]);
+  const [publishedPhotos, setPublishedPhotos] = useState<PublishedPhoto[]>([]);
   const [message, setMessage] = useState("");
   const photo = photos.find((item) => item.id === selected);
   useEffect(() => {
@@ -43,6 +45,7 @@ export default function Home() {
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => syncSession(session?.user.id ?? null, session?.user.email ?? null));
     return () => listener.subscription.unsubscribe();
   }, []);
+  useEffect(() => { void loadPublishedPhotos(); }, []);
   useEffect(() => {
     if (view === "profile" && userId) void loadUserPhotos(userId);
   }, [view, userId]);
@@ -57,6 +60,11 @@ export default function Home() {
     if (!supabase) return;
     const { data } = await supabase.from("photographs").select("id, title, categories, image_path").eq("owner_id", id).order("created_at", { ascending: false });
     setUserPhotos(data ?? []);
+  }
+  async function loadPublishedPhotos() {
+    if (!supabase) return;
+    const { data } = await supabase.from("photographs").select("id, title, categories, image_path, owner_id, profiles(display_name, handle)").eq("status", "published").order("published_at", { ascending: false });
+    setPublishedPhotos((data as PublishedPhoto[] | null) ?? []);
   }
   async function authenticate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -104,9 +112,9 @@ export default function Home() {
     const { error } = await supabase.from('photographs').insert({ owner_id: userId, image_path: path, title: photoTitle.trim() || null, description: photoDescription.trim() || null, categories, comments_enabled: commentsEnabled, status: publishNow ? 'published' : 'draft', published_at: publishNow ? new Date().toISOString() : null });
     setUploading(false);
     if (error) return setMessage(error.message);
-    await loadUserPhotos(userId); setUploadFile(null); setPreviewUrl(null); setPhotoTitle(""); setPhotoDescription(""); setPhotoCategories(""); setMessage("Photograph saved."); setView("profile");
+    await Promise.all([loadUserPhotos(userId), loadPublishedPhotos()]); setUploadFile(null); setPreviewUrl(null); setPhotoTitle(""); setPhotoDescription(""); setPhotoCategories(""); setMessage("Photograph saved."); setView("profile");
   }
-  const gallery = <section className="gallery">{photos.map((item) => <button key={item.id} className="photo" onClick={() => setSelected(item.id)}><img src={item.image} alt={item.title} /><span>{item.category}</span></button>)}</section>;
+  const gallery = <section className="gallery">{publishedPhotos.length ? publishedPhotos.map((item) => { const { data } = supabase?.storage.from("photographs").getPublicUrl(item.image_path) ?? { data: { publicUrl: "" } }; return <article key={item.id} className="photo"><img src={data.publicUrl} alt={item.title ?? "Published photograph"} /><span>{item.categories[0] ?? "Photograph"}</span></article>; }) : <p className="empty-gallery">No published photographs yet.</p>}</section>;
   const uploadScreen = <section className="upload"><div className="upload-heading"><p className="eyebrow">New photograph</p><h1>Share a photograph.</h1><p>Let the work take up space.</p></div>{userId ? <form onSubmit={uploadPhotograph}><label className={`dropzone ${previewUrl ? 'has-preview' : ''}`}><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => { const file = e.target.files?.[0] ?? null; setUploadFile(file); setPreviewUrl(file ? URL.createObjectURL(file) : null); }} required />{previewUrl ? <><img src={previewUrl} alt="Selected photograph preview" /><span>Choose another photograph</span></> : <><strong>Choose a photograph</strong><span>JPEG, PNG, or WebP · 15 MB maximum</span></>}</label><div className="upload-fields"><input value={photoTitle} onChange={(e) => setPhotoTitle(e.target.value)} placeholder="Untitled (optional)" maxLength={140} /><textarea value={photoDescription} onChange={(e) => setPhotoDescription(e.target.value)} placeholder="A few words, if you want" maxLength={1200} /><input value={photoCategories} onChange={(e) => setPhotoCategories(e.target.value)} placeholder="Categories · up to three, separated by commas" /><div className="upload-options"><label><input type="checkbox" checked={commentsEnabled} onChange={(e) => setCommentsEnabled(e.target.checked)} /> Conversations welcome</label><label><input type="checkbox" checked={publishNow} onChange={(e) => setPublishNow(e.target.checked)} /> Publish now</label></div><button className="publish" type="submit" disabled={uploading}>{uploading ? 'Saving…' : publishNow ? 'Publish photograph' : 'Save as draft'}</button></div></form> : <p>Sign in to upload photographs.</p>}<p className="upload-message">{message}</p></section>;
   const profileGallery = <section className="gallery">{userPhotos.map((item) => { const { data } = supabase?.storage.from("photographs").getPublicUrl(item.image_path) ?? { data: { publicUrl: "" } }; return <article key={item.id} className="photo"><img src={data.publicUrl} alt={item.title ?? "Photograph"} /><span>{item.categories[0] ?? "Photograph"}</span></article>; })}</section>;
   const screen = view === "gallery" ? gallery : view === "profile" ? <section className="panel"><p className="eyebrow">Photographer profile</p><h1>{profile?.display_name ?? "Your profile"}</h1><p>@{profile?.handle ?? ""}{profile?.location ? ` · ${profile.location}` : ""}</p><p>{profile?.bio || "No biography yet."}</p>{profile?.website && <p>{profile.website}</p>}<button className="edit" onClick={openProfileEditor}>Edit profile</button><p className="eyebrow">Your photographs</p>{userPhotos.length ? profileGallery : <p>Published photographs will appear here.</p>}</section> : view === "upload" ? uploadScreen : <section className="panel"><p className="eyebrow">{view}</p><h1>{view === "discover" ? "Discover slowly." : "Thoughtful exchanges."}</h1><p>{view === "discover" ? "Varied work beyond your network. No popularity ranking." : "This section is ready to connect to real data in Phase 2."}</p>{view === "discover" ? gallery : null}</section>;
