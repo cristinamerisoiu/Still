@@ -10,6 +10,8 @@ const photos = [
 ];
 type StoredPhoto = { id: string; title: string | null; categories: string[]; image_path: string; status: "draft" | "published" };
 type PublishedPhoto = StoredPhoto & { owner_id: string; profiles: { display_name: string; handle: string } | null };
+type PhotographDetail = PublishedPhoto & { description: string | null; comments_enabled: boolean };
+type PhotographComment = { id: string; body: string; author_id: string; created_at: string; profiles: { display_name: string; handle: string } | null };
 
 export default function Home() {
   const [selected, setSelected] = useState<number | null>(null);
@@ -37,6 +39,11 @@ export default function Home() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [userPhotos, setUserPhotos] = useState<StoredPhoto[]>([]);
   const [publishedPhotos, setPublishedPhotos] = useState<PublishedPhoto[]>([]);
+  const [selectedPhoto, setSelectedPhoto] = useState<PhotographDetail | null>(null);
+  const [comments, setComments] = useState<PhotographComment[]>([]);
+  const [commentBody, setCommentBody] = useState("");
+  const [bookmarked, setBookmarked] = useState<Set<string>>(new Set());
+  const [appreciated, setAppreciated] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState("");
   const photo = photos.find((item) => item.id === selected);
   useEffect(() => {
@@ -54,7 +61,7 @@ export default function Home() {
     if (!id || !supabase) { setNeedsProfile(false); setUserPhotos([]); return; }
     const { data } = await supabase.from("profiles").select("display_name, handle, bio, location, website").eq("id", id).maybeSingle();
     setProfile(data); setNeedsProfile(!data);
-    await loadUserPhotos(id);
+    await Promise.all([loadUserPhotos(id), loadPersonalActions(id)]);
   }
   async function loadUserPhotos(id: string) {
     if (!supabase) return;
@@ -65,6 +72,44 @@ export default function Home() {
     if (!supabase) return;
     const { data } = await supabase.from("photographs").select("id, title, categories, image_path, owner_id, profiles(display_name, handle)").eq("status", "published").order("published_at", { ascending: false });
     setPublishedPhotos((data as PublishedPhoto[] | null) ?? []);
+  }
+  async function loadPersonalActions(id: string) {
+    if (!supabase) return;
+    const [{ data: bookmarks }, { data: appreciations }] = await Promise.all([
+      supabase.from("bookmarks").select("photograph_id").eq("user_id", id),
+      supabase.from("appreciations").select("photograph_id").eq("user_id", id)
+    ]);
+    setBookmarked(new Set((bookmarks ?? []).map((item) => item.photograph_id)));
+    setAppreciated(new Set((appreciations ?? []).map((item) => item.photograph_id)));
+  }
+  async function openPhotograph(id: string) {
+    if (!supabase) return;
+    const [{ data: photograph }, { data: photographComments }] = await Promise.all([
+      supabase.from("photographs").select("id, title, categories, image_path, status, owner_id, description, comments_enabled, profiles(display_name, handle)").eq("id", id).maybeSingle(),
+      supabase.from("comments").select("id, body, author_id, created_at, profiles(display_name, handle)").eq("photograph_id", id).order("created_at", { ascending: true })
+    ]);
+    if (!photograph) return setMessage("This photograph is no longer available.");
+    setSelectedPhoto(photograph as unknown as PhotographDetail);
+    setComments((photographComments as PhotographComment[] | null) ?? []);
+    setView("photograph");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  async function addComment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase || !userId || !selectedPhoto) return setAuthOpen(true);
+    const body = commentBody.trim();
+    if (!body) return;
+    const { error } = await supabase.from("comments").insert({ photograph_id: selectedPhoto.id, author_id: userId, body });
+    if (error) return setMessage(error.message);
+    setCommentBody("");
+    await openPhotograph(selectedPhoto.id);
+  }
+  async function toggleAction(table: "bookmarks" | "appreciations", photoId: string) {
+    if (!supabase || !userId) return setAuthOpen(true);
+    const active = table === "bookmarks" ? bookmarked.has(photoId) : appreciated.has(photoId);
+    const { error } = active ? await supabase.from(table).delete().eq("user_id", userId).eq("photograph_id", photoId) : await supabase.from(table).insert({ user_id: userId, photograph_id: photoId });
+    if (error) return setMessage(error.message);
+    await loadPersonalActions(userId);
   }
   async function authenticate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -127,9 +172,10 @@ export default function Home() {
     setMessage(error ? error.message : "Photograph deleted.");
     if (!error) await Promise.all([loadUserPhotos(userId), loadPublishedPhotos()]);
   }
-  const gallery = <section className="gallery">{publishedPhotos.length ? publishedPhotos.map((item) => { const { data } = supabase?.storage.from("photographs").getPublicUrl(item.image_path) ?? { data: { publicUrl: "" } }; return <article key={item.id} className="photo"><img src={data.publicUrl} alt={item.title ?? "Published photograph"} /><span>{item.categories[0] ?? "Photograph"}</span></article>; }) : <p className="empty-gallery">No published photographs yet.</p>}</section>;
+  const gallery = <section className="gallery">{publishedPhotos.length ? publishedPhotos.map((item) => { const { data } = supabase?.storage.from("photographs").getPublicUrl(item.image_path) ?? { data: { publicUrl: "" } }; return <article key={item.id} className="photo" onClick={() => openPhotograph(item.id)}><img src={data.publicUrl} alt={item.title ?? "Published photograph"} /><span>{item.categories[0] ?? "Photograph"}</span>{userId && <div className="photo-tools" onClick={(event) => event.stopPropagation()}><button onClick={() => toggleAction("bookmarks", item.id)}>{bookmarked.has(item.id) ? "Bookmarked" : "Bookmark"}</button><button onClick={() => toggleAction("appreciations", item.id)}>{appreciated.has(item.id) ? "Appreciated" : "Appreciate"}</button></div>}</article>; }) : <p className="empty-gallery">No published photographs yet.</p>}</section>;
   const uploadScreen = <section className="upload"><div className="upload-heading"><p className="eyebrow">New photograph</p><h1>Share a photograph.</h1><p>Let the work take up space.</p></div>{userId ? <form onSubmit={uploadPhotograph}><label className={`dropzone ${previewUrl ? 'has-preview' : ''}`}><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => { const file = e.target.files?.[0] ?? null; setUploadFile(file); setPreviewUrl(file ? URL.createObjectURL(file) : null); }} required />{previewUrl ? <><img src={previewUrl} alt="Selected photograph preview" /><span>Choose another photograph</span></> : <><strong>Choose a photograph</strong><span>JPEG, PNG, or WebP · 15 MB maximum</span></>}</label><div className="upload-fields"><input value={photoTitle} onChange={(e) => setPhotoTitle(e.target.value)} placeholder="Untitled (optional)" maxLength={140} /><textarea value={photoDescription} onChange={(e) => setPhotoDescription(e.target.value)} placeholder="A few words, if you want" maxLength={1200} /><input value={photoCategories} onChange={(e) => setPhotoCategories(e.target.value)} placeholder="Categories · up to three, separated by commas" /><div className="upload-options"><label><input type="checkbox" checked={commentsEnabled} onChange={(e) => setCommentsEnabled(e.target.checked)} /> Conversations welcome</label><label><input type="checkbox" checked={publishNow} onChange={(e) => setPublishNow(e.target.checked)} /> Publish now</label></div><button className="publish" type="submit" disabled={uploading}>{uploading ? 'Saving…' : publishNow ? 'Publish photograph' : 'Save as draft'}</button></div></form> : <p>Sign in to upload photographs.</p>}<p className="upload-message">{message}</p></section>;
   const profileGallery = <section className="gallery">{userPhotos.map((item) => { const { data } = supabase?.storage.from("photographs").getPublicUrl(item.image_path) ?? { data: { publicUrl: "" } }; return <article key={item.id} className="photo managed-photo"><img src={data.publicUrl} alt={item.title ?? "Photograph"} /><span>{item.status === "draft" ? "Draft" : item.categories[0] ?? "Photograph"}</span><div className="photo-tools"><button onClick={() => setPhotographStatus(item, item.status === "draft")}>{item.status === "draft" ? "Publish" : "Unpublish"}</button><button onClick={() => deletePhotograph(item)}>Delete</button></div></article>; })}</section>;
-  const screen = view === "gallery" ? gallery : view === "profile" ? <section className="panel"><p className="eyebrow">Photographer profile</p><h1>{profile?.display_name ?? "Your profile"}</h1><p>@{profile?.handle ?? ""}{profile?.location ? ` · ${profile.location}` : ""}</p><p>{profile?.bio || "No biography yet."}</p>{profile?.website && <p>{profile.website}</p>}<button className="edit" onClick={openProfileEditor}>Edit profile</button><p className="eyebrow">Your photographs</p>{userPhotos.length ? profileGallery : <p>Published photographs will appear here.</p>}</section> : view === "upload" ? uploadScreen : <section className="panel"><p className="eyebrow">{view}</p><h1>{view === "discover" ? "Discover slowly." : "Thoughtful exchanges."}</h1><p>{view === "discover" ? "Varied work beyond your network. No popularity ranking." : "This section is ready to connect to real data in Phase 2."}</p>{view === "discover" ? gallery : null}</section>;
+  const photographScreen = selectedPhoto ? (() => { const { data } = supabase?.storage.from("photographs").getPublicUrl(selectedPhoto.image_path) ?? { data: { publicUrl: "" } }; return <section className="detail"><button className="back" onClick={() => { setSelectedPhoto(null); setView("gallery"); }}>← Back to gallery</button><img src={data.publicUrl} alt={selectedPhoto.title ?? "Photograph"} /><div className="detail-copy"><p className="eyebrow">{selectedPhoto.categories.join(" · ") || "Photograph"}</p><h1>{selectedPhoto.title || "Untitled"}</h1>{selectedPhoto.description && <p>{selectedPhoto.description}</p>}<p>Photograph by {selectedPhoto.profiles?.display_name ?? "Unknown photographer"} · @{selectedPhoto.profiles?.handle ?? ""}</p>{userId && <div className="detail-actions"><button onClick={() => toggleAction("bookmarks", selectedPhoto.id)}>{bookmarked.has(selectedPhoto.id) ? "Bookmarked" : "Bookmark"}</button><button onClick={() => toggleAction("appreciations", selectedPhoto.id)}>{appreciated.has(selectedPhoto.id) ? "Appreciated" : "Appreciate"}</button></div>}</div><section className="comments"><p className="eyebrow">Conversation</p>{selectedPhoto.comments_enabled ? <>{comments.length ? comments.map((comment) => <article key={comment.id} className="comment"><strong>{comment.profiles?.display_name ?? "Photographer"}</strong><span>@{comment.profiles?.handle ?? ""}</span><p>{comment.body}</p></article>) : <p className="muted">No comments yet.</p>}{userId ? <form onSubmit={addComment}><textarea value={commentBody} onChange={(event) => setCommentBody(event.target.value)} placeholder="Leave a thoughtful note" maxLength={2000} required /><button type="submit">Post comment</button></form> : <button onClick={() => setAuthOpen(true)}>Sign in to comment</button>}</> : <p className="muted">Comments are closed for this photograph.</p>}</section></section>; })() : null;
+  const screen = view === "gallery" ? gallery : view === "photograph" ? photographScreen : view === "profile" ? <section className="panel"><p className="eyebrow">Photographer profile</p><h1>{profile?.display_name ?? "Your profile"}</h1><p>@{profile?.handle ?? ""}{profile?.location ? ` · ${profile.location}` : ""}</p><p>{profile?.bio || "No biography yet."}</p>{profile?.website && <p>{profile.website}</p>}<button className="edit" onClick={openProfileEditor}>Edit profile</button><p className="eyebrow">Your photographs</p>{userPhotos.length ? profileGallery : <p>Published photographs will appear here.</p>}</section> : view === "upload" ? uploadScreen : <section className="panel"><p className="eyebrow">{view}</p><h1>{view === "discover" ? "Discover slowly." : "Thoughtful exchanges."}</h1><p>{view === "discover" ? "Varied work beyond your network. No popularity ranking." : "This space will show your notifications and conversations."}</p>{view === "discover" ? gallery : null}</section>;
   return <main className="shell"><header><button className="wordmark" onClick={() => { setSelected(null); setView("gallery"); }}>STILL.</button><nav>{["gallery","discover","upload","conversations","profile"].map((item) => <button className={view === item ? "active" : ""} key={item} onClick={() => { setSelected(null); setView(item); }}>{item}</button>)}{accountEmail ? <button onClick={signOut}>Sign out</button> : <button onClick={() => setAuthOpen(true)}>Sign in</button>}</nav></header>{editingProfile && <section className="auth"><button className="back" onClick={() => setEditingProfile(false)}>× Close</button><h1>Edit profile</h1><form onSubmit={saveProfile}><input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Display name" required /><input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="Handle" pattern="[a-zA-Z0-9_]{3,30}" required /><textarea value={editBio} onChange={(e) => setEditBio(e.target.value)} placeholder="Biography" maxLength={500} /><input value={editLocation} onChange={(e) => setEditLocation(e.target.value)} placeholder="Location" maxLength={120} /><input value={editWebsite} onChange={(e) => setEditWebsite(e.target.value)} placeholder="Website" maxLength={240} /><button type="submit">Save profile</button></form><p>{message}</p></section>}{needsProfile && <section className="auth"><h1>Set up your profile.</h1><form onSubmit={createProfile}><input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Display name" required /><input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="Handle (letters, numbers, underscore)" pattern="[a-zA-Z0-9_]{3,30}" required /><button type="submit">Create profile</button></form><p>{message}</p></section>}{authOpen && <section className="auth"><button className="back" onClick={() => setAuthOpen(false)}>× Close</button><h1>Welcome to STILL.</h1><form onSubmit={authenticate}><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" required /><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" minLength={8} required /><button type="submit">Sign in</button><button type="button" onClick={register}>Create account</button></form><p>{message}</p></section>}{photo ? <section className="detail"><button className="back" onClick={() => setSelected(null)}>← Back</button><img src={photo.image} alt={photo.title} /><div><p className="eyebrow">{photo.category}</p><h1>{photo.title}</h1><p>{photo.description}</p><p>Photograph by {photo.name}</p></div></section> : screen}</main>;
 }
