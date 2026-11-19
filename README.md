@@ -5,6 +5,7 @@
 - Next.js + TypeScript frontend with a static Netlify export.
 - Gallery, Discover, Upload preview, Conversations, Profile, and photograph-detail views.
 - Supabase client integration, versioned database migrations, Row Level Security policies, and storage policies.
+- Real accounts, editable profiles, drafts, secure image uploads, publishing, bookmarks, private appreciations, follows, comments, and in-app notifications.
 
 ## Run locally
 
@@ -17,6 +18,6 @@ npm run dev
 
 Then visit `http://localhost:3000`.
 
-## Phase 2
+## Completed foundation
 
-Add real profile onboarding, image uploads, drafts, follows, persistent private appreciations/bookmarks/comments, account settings, and all required loading/error states. Phase 3 adds exposure records, fair discovery rotation, reporting, blocking, notifications, and moderation.
+The initial authenticated content loop is complete. The next work is discovery rotation, reporting and blocking, moderation tools, and the full UX refinement pass.
