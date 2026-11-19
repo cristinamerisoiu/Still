@@ -10,16 +10,19 @@
 - [x] Move the prototype into `app/` routes and reusable components.
 - [x] Add a `Back` control to photograph detail that returns to the originating view.
 - [x] Verify a production build.
-- [ ] Confirm Netlify's Next.js deployment from `main`.
+- [x] Confirm Netlify's Next.js deployment from `main`.
 
 ## Phase 2 — Data and accounts
 
-- [ ] Create Supabase development project.
-- [ ] Add database migrations and Row Level Security policies.
-- [ ] Add authentication, profiles, photographs, and storage.
+- [x] Create Supabase development project.
+- [x] Add database migrations and Row Level Security policies.
+- [x] Add authentication, profiles, photographs, and storage.
+- [x] Add profile onboarding and profile editing.
+- [x] Add secure image upload, drafts, publishing, unpublishing, and deletion.
+- [x] Add the real public gallery and photograph-detail view.
 
 ## Phase 3 — Community and safety
 
-- [ ] Add follows, bookmarks, private appreciation, comments, and notifications.
+- [x] Add follows, bookmarks, private appreciation, comments, and notifications.
 - [ ] Add transparent discovery rotation.
 - [ ] Add reporting, blocking, moderation, and security tests.
